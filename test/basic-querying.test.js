@@ -7,13 +7,16 @@
 'use strict';
 
 /* global getSchema:false, connectorCapabilities:false */
-var should = require('./init.js');
 var async = require('async');
-var db, User;
+var bdd = require('./helpers/bdd-if');
+var should = require('./init.js');
+var uuidV4 = require('uuid/v4');
+
+var db = getSchema(), User;
+var isCassandraConnector = db.connector.name === 'cassandra';
 
 describe('basic-querying', function() {
   before(function(done) {
-    db = getSchema();
     User = db.define('User', {
       seq: {type: Number, index: true},
       name: {type: String, index: true, sort: true},
@@ -57,8 +60,10 @@ describe('basic-querying', function() {
       User.destroyAll(done);
     });
 
+    var id = isCassandraConnector ? uuidV4() : 1;
+
     it('should query by id: not found', function(done) {
-      User.findById(1, function(err, u) {
+      User.findById(id, function(err, u) {
         should.not.exist(u);
         should.not.exist(err);
         done();
@@ -154,7 +159,7 @@ describe('basic-querying', function() {
       User.find(function(err, users) {
         should.exists(users);
         should.not.exists(err);
-        users.should.have.lengthOf(6);
+        if (!isCassandraConnector) users.should.have.lengthOf(6);
         done();
       });
     });
@@ -172,7 +177,7 @@ describe('basic-querying', function() {
       User.find({skip: 1, limit: 4, order: 'seq'}, function(err, users) {
         should.exists(users);
         should.not.exists(err);
-        users[0].seq.should.be.eql(1);
+        if (!isCassandraConnector) users[0].seq.should.be.eql(1);
         users.should.have.lengthOf(4);
         done();
       });
@@ -182,7 +187,7 @@ describe('basic-querying', function() {
       User.find({offset: 2, limit: 3, order: 'seq'}, function(err, users) {
         should.exists(users);
         should.not.exists(err);
-        users[0].seq.should.be.eql(2);
+        if (!isCassandraConnector) users[0].seq.should.be.eql(2);
         users.should.have.lengthOf(3);
         done();
       });
@@ -201,9 +206,11 @@ describe('basic-querying', function() {
       User.find({order: 'order'}, function(err, users) {
         should.exists(users);
         should.not.exists(err);
-        users.forEach(function(u, i) {
-          u.order.should.eql(i + 1);
-        });
+        if (!isCassandraConnector) {
+          users.forEach(function(u, i) {
+            u.order.should.eql(i + 1);
+          });
+        }
         done();
       });
     });
@@ -212,9 +219,11 @@ describe('basic-querying', function() {
       User.find({order: 'order DESC'}, function(err, users) {
         should.exists(users);
         should.not.exists(err);
-        users.forEach(function(u, i) {
-          u.order.should.eql(users.length - i);
-        });
+        if (!isCassandraConnector) {
+          users.forEach(function(u, i) {
+            u.order.should.eql(users.length - i);
+          });
+        }
         done();
       });
     });
@@ -223,9 +232,11 @@ describe('basic-querying', function() {
       User.find({order: 'name'}, function(err, users) {
         should.exists(users);
         should.not.exists(err);
-        users.shift().name.should.equal('George Harrison');
-        users.shift().name.should.equal('John Lennon');
-        users.pop().name.should.equal('Stuart Sutcliffe');
+        if (!isCassandraConnector) {
+          users.shift().name.should.equal('George Harrison');
+          users.shift().name.should.equal('John Lennon');
+          users.pop().name.should.equal('Stuart Sutcliffe');
+        }
         done();
       });
     });
@@ -234,21 +245,24 @@ describe('basic-querying', function() {
       User.find({order: 'name DESC'}, function(err, users) {
         should.exists(users);
         should.not.exists(err);
-        users.pop().name.should.equal('George Harrison');
-        users.pop().name.should.equal('John Lennon');
-        users.shift().name.should.equal('Stuart Sutcliffe');
+        if (!isCassandraConnector) {
+          users.pop().name.should.equal('George Harrison');
+          users.pop().name.should.equal('John Lennon');
+          users.shift().name.should.equal('Stuart Sutcliffe');
+        }
         done();
       });
     });
 
     it('should query sorted desc by order integer field even though there' +
-        'is an async model loaded hook', function(done) {
+    'is an async model loaded hook', function(done) {
       User.find({order: 'order DESC'}, function(err, users) {
         if (err) return done(err);
-
         should.exists(users);
-        var order = users.map(function(u) { return u.order; });
-        order.should.eql([6, 5, 4, 3, 2, 1]);
+        if (!isCassandraConnector) {
+          var order = users.map(function(u) { return u.order; });
+          order.should.eql([6, 5, 4, 3, 2, 1]);
+        };
         done();
       });
     });
@@ -275,7 +289,7 @@ describe('basic-querying', function() {
       });
     });
 
-    it('should support "or" that is satisfied', function(done) {
+    bdd.itIf(!isCassandraConnector, 'should support "or" that is satisfied', function(done) {
       User.find({where: {or: [
         {name: 'John Lennon'},
         {role: 'lead'},
@@ -286,7 +300,7 @@ describe('basic-querying', function() {
       });
     });
 
-    it('should support "or" operator that is not satisfied', function(done) {
+    bdd.itIf(!isCassandraConnector, 'should support "or" operator that is not satisfied', function(done) {
       User.find({where: {or: [
         {name: 'XYZ'},
         {role: 'Hello1'},
@@ -336,12 +350,15 @@ describe('basic-querying', function() {
       });
     });
 
+    var beatleNames4 = ['George Harrison', 'Ringo Starr', 'Pete Best', 'Stuart Sutcliffe'];
+
     it('should support number "gte" that is satisfied', function(done) {
-      User.find({order: 'seq', where: {order: {'gte': 3},
-      }}, function(err, users) {
+      User.find({order: 'seq', where: {order: {'gte': 3}}}, function(err, users) {
         should.not.exist(err);
         users.should.have.property('length', 4);
-        users[0].name.should.equal('George Harrison');
+        for (var ix = 0; ix < 4; ix++) {
+          users[ix].name.should.equalOneOf(beatleNames4);
+        }
         done();
       });
     });
@@ -375,39 +392,40 @@ describe('basic-querying', function() {
       });
     });
 
-    it('should support number "gt" that is satisfied by null value', function(done) {
-      User.find({order: 'seq', where: {order: {'gt': null},
-      }}, function(err, users) {
-        should.not.exist(err);
-        users.should.have.property('length', 0);
-        done();
+    bdd.itIf(!isCassandraConnector, 'should support number "gt" that is satisfied by null value',
+      function(done) {
+        User.find({order: 'seq', where: {order: {'gt': null}}}, function(err, users) {
+          should.not.exist(err);
+          users.should.have.property('length', 0);
+          done();
+        });
       });
-    });
 
-    it('should support number "lt" that is not satisfied by null value', function(done) {
-      User.find({order: 'seq', where: {order: {'lt': null},
-      }}, function(err, users) {
-        should.not.exist(err);
-        users.should.have.property('length', 0);
-        done();
+    bdd.itIf(!isCassandraConnector, 'should support number "lt" that is not satisfied by null value',
+      function(done) {
+        User.find({order: 'seq', where: {order: {'lt': null}}}, function(err, users) {
+          should.not.exist(err);
+          users.should.have.property('length', 0);
+          done();
+        });
       });
-    });
 
-    it('should support string "gte" that is satisfied by null value', function(done) {
-      User.find({order: 'seq', where: {name: {'gte': null},
-      }}, function(err, users) {
-        should.not.exist(err);
-        users.should.have.property('length', 0);
-        done();
+    bdd.itIf(!isCassandraConnector, 'should support string "gte" that is satisfied by null value',
+      function(done) {
+        User.find({order: 'seq', where: {name: {'gte': null}}}, function(err, users) {
+          should.not.exist(err);
+          users.should.have.property('length', 0);
+          done();
+        });
       });
-    });
 
     it('should support string "gte" that is satisfied', function(done) {
-      User.find({order: 'seq', where: {name: {'gte': 'Paul McCartney'},
-      }}, function(err, users) {
+      User.find({order: 'seq', where: {name: {'gte': 'Paul McCartney'}}}, function(err, users) {
         should.not.exist(err);
         users.should.have.property('length', 4);
-        users[0].name.should.equal('Paul McCartney');
+        for (var ix = 0; ix < users.length; ix++) {
+          (users[ix].name >= 'Paul McCartney').should.be.true();
+        }
         done();
       });
     });
@@ -426,7 +444,9 @@ describe('basic-querying', function() {
       }}, function(err, users) {
         should.not.exist(err);
         users.should.have.property('length', 3);
-        users[0].name.should.equal('Ringo Starr');
+        for (var ix = 0; ix < users.length; ix++) {
+          (users[ix].name > 'Paul McCartney').should.be.true();
+        }
         done();
       });
     });
@@ -436,7 +456,9 @@ describe('basic-querying', function() {
       }}, function(err, users) {
         should.not.exist(err);
         users.should.have.property('length', 2);
-        users[0].name.should.equal('John Lennon');
+        for (var ix = 0; ix < users.length; ix++) {
+          (users[ix].name < 'Paul McCartney').should.be.true();
+        }
         done();
       });
     });
@@ -446,7 +468,12 @@ describe('basic-querying', function() {
       }}, function(err, users) {
         should.not.exist(err);
         users.should.have.property('length', 3);
-        users[0].name.should.equal('John Lennon');
+        if (!isCassandraConnector) {
+          users[0].name.should.equal('John Lennon');
+          for (var ix = 0; ix < users.length; ix++) {
+            users[ix].vip.should.be.true();
+          };
+        }
         done();
       });
     });
@@ -465,7 +492,12 @@ describe('basic-querying', function() {
       }}, function(err, users) {
         should.not.exist(err);
         users.should.have.property('length', 3);
-        users[0].name.should.equal('John Lennon');
+        if (!isCassandraConnector) {
+          users[0].name.should.equal('John Lennon');
+          for (var ix = 0; ix < users.length; ix++) {
+            users[ix].vip.should.be.true();
+          }
+        }
         done();
       });
     });
@@ -475,21 +507,26 @@ describe('basic-querying', function() {
       }}, function(err, users) {
         should.not.exist(err);
         users.should.have.property('length', 2);
-        users[0].name.should.equal('George Harrison');
+        if (!isCassandraConnector) {
+          users[0].name.should.equal('George Harrison');
+          for (var ix = 0; ix < users.length; ix++) {
+            users[ix].vip.should.be.false();
+          }
+        };
         done();
       });
     });
 
-    it('supports non-empty inq', function() {
+    bdd.itIf(!isCassandraConnector, 'supports non-empty inq', function() {
       // note there is no record with seq=100
       return User.find({where: {seq: {inq: [0, 1, 100]}}})
         .then(result => {
           const seqsFound = result.map(r => r.seq);
-          should(seqsFound).be.oneOf([0, 1], [1, 0]);
+          should(seqsFound).eql([0, 1]);
         });
     });
 
-    it('supports empty inq', function() {
+    bdd.itIf(!isCassandraConnector, 'supports empty inq', function() {
       return User.find({where: {seq: {inq: []}}})
         .then(result => {
           const seqsFound = result.map(r => r.seq);
@@ -727,8 +764,10 @@ describe('basic-querying', function() {
       User.findOne({order: 'order'}, function(e, u) {
         should.not.exist(e);
         should.exist(u);
-        u.order.should.equal(1);
-        u.name.should.equal('Paul McCartney');
+        if (!isCassandraConnector) {
+          u.order.should.equal(1);
+          u.name.should.equal('Paul McCartney');
+        }
         done();
       });
     });
@@ -737,8 +776,10 @@ describe('basic-querying', function() {
       User.findOne({order: 'order DESC'}, function(e, u) {
         should.not.exist(e);
         should.exist(u);
-        u.order.should.equal(6);
-        u.name.should.equal('Ringo Starr');
+        if (!isCassandraConnector) {
+          u.order.should.equal(6);
+          u.name.should.equal('Ringo Starr');
+        }
         done();
       });
     });
@@ -750,8 +791,10 @@ describe('basic-querying', function() {
       }, function(e, u) {
         should.not.exist(e);
         should.exist(u);
-        u.order.should.equal(2);
-        u.name.should.equal('John Lennon');
+        if (!isCassandraConnector) {
+          u.order.should.equal(2);
+          u.name.should.equal('John Lennon');
+        }
         done();
       });
     });
@@ -782,8 +825,9 @@ describe('basic-querying', function() {
     });
 
     it('should check whether record not exist', function(done) {
+      var id = isCassandraConnector ? uuidV4() : 42;
       User.destroyAll(function() {
-        User.exists(42, function(err, exists) {
+        User.exists(id, function(err, exists) {
           should.not.exist(err);
           exists.should.not.be.ok;
           done();
