@@ -34,8 +34,10 @@ describe('Memory connector', function() {
   });
 
   describe('with file', function() {
+    var ds;
+
     function createUserModel() {
-      var ds = new DataSource({
+      ds = new DataSource({
         connector: 'memory',
         file: file,
       });
@@ -62,6 +64,13 @@ describe('Memory connector', function() {
       User = createUserModel();
     });
 
+    it('should allow multiple connects', function(done) {
+      ds.connector.connected = false; // Change the state to force reconnect
+      async.times(10, function(n, next) {
+        ds.connector.connect(next);
+      }, done);
+    });
+
     it('should persist create', function(done) {
       var count = 0;
       async.eachSeries(['John1', 'John2', 'John3'], function(item, cb) {
@@ -76,6 +85,35 @@ describe('Memory connector', function() {
       }, done);
     });
 
+    it('should not have out of sequence read/write', function(done) {
+      ds.connected = false;
+      ds.connector.connected = false; // Change the state to force reconnect
+      ds.connector.cache = {};
+
+      async.times(10, function(n, next) {
+        if (n === 10) {
+          // Make sure the connect finishes
+          return ds.connector.connect(next);
+        }
+        ds.connector.connect();
+        next();
+      }, function(err) {
+        async.eachSeries(['John4', 'John5'], function(item, cb) {
+          var count = 0;
+          User.create({name: item}, function(err, result) {
+            ids.push(result.id);
+            cb(err);
+          });
+        }, function(err) {
+          if (err) return done(err);
+          readModels(function(err, json) {
+            assert.equal(Object.keys(json.models.User).length, 5);
+            done();
+          });
+        });
+      });
+    });
+
     it('should persist delete', function(done) {
       // Now try to delete one
       User.deleteById(ids[0], function(err) {
@@ -86,7 +124,7 @@ describe('Memory connector', function() {
           if (err) {
             return done(err);
           }
-          assert.equal(Object.keys(json.models.User).length, 2);
+          assert.equal(Object.keys(json.models.User).length, 4);
           done();
         });
       });
@@ -101,7 +139,7 @@ describe('Memory connector', function() {
           if (err) {
             return done(err);
           }
-          assert.equal(Object.keys(json.models.User).length, 2);
+          assert.equal(Object.keys(json.models.User).length, 4);
           var user = JSON.parse(json.models.User[ids[1]]);
           assert.equal(user.name, 'John');
           assert(user.id === ids[1]);
@@ -120,7 +158,7 @@ describe('Memory connector', function() {
             if (err) {
               return done(err);
             }
-            assert.equal(Object.keys(json.models.User).length, 2);
+            assert.equal(Object.keys(json.models.User).length, 4);
             var user = JSON.parse(json.models.User[ids[1]]);
             assert.equal(user.name, 'John1');
             assert(user.id === ids[1]);
@@ -133,7 +171,7 @@ describe('Memory connector', function() {
     it('should load from the json file', function(done) {
       User.find(function(err, users) {
         // There should be 2 records
-        assert.equal(users.length, 2);
+        assert.equal(users.length, 4);
         done(err);
       });
     });
